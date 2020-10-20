@@ -1,15 +1,43 @@
+'''
+1	6	8	12	9
+4	7	17	*	5
+16	22	24	3	15
+2	18	23	10	19
+11	21	14	13	20
+'''
+
+import heapq
+
+def storeUnique(C):
+	cache = {}
+	def g(*args):
+		d = args[0]
+		for state in cache:
+			if cache[state] == d: return state
+		s = C(d)
+		cache[s] = d
+		return s
+	return g
+
+@storeUnique
 class State:
-	def __init__(self, state):
-		self.state = state
-		for i in range(len(state)):
-			row = state[i]
+	def __init__(self, data):
+		self.state = data
+		self.rows = len(data)
+		self.cols = len(data[0])
+		for i in range(self.rows):
+			row = self.state[i]
 			if '*' in row: self.star = (i, row.index('*'))
 
-	def value(self, pos):
-		return self.state[pos[0]][pos[1]]
+	def value(self, row, col):
+		return self.state[row][col]
 	
 	def pos(self, i):
-		return self.state[i // len(self.state[0])][i % len(self.state[0])]
+		return self.state[i // self.cols][i % self.cols]
+
+	def index(self, value):
+		for (row, col) in [(row, col) for row in range(self.rows) for col in range(self.cols)]:
+			if self.state[row][col] == value: return (row, col)
 
 	def swap(self, row, col):
 		swapState = self.copy()
@@ -18,49 +46,66 @@ class State:
 		return State(swapState)
 
 	def copy(self):
-		copyState = []
-		for y in range(len(self.state)):
-			row = []
-			for x in range(len(self.state[0])):
-				row.append(self.value((y, x)))
-			copyState.append(row)
-		return copyState
+		return [row[:] for row in self.state]
 	
-	def equals(self, state):
-		return self.state == state.state
+	def equals(self, obj):
+		return self.state == obj.state
 
 	def DebugPrint(self):
-		for row in self.state: print("\t".join(row) + "\n")
+		for row in self.state: print("\t".join(row))
+		print()
 	
 	def getGoal(self):
 		goal = []
-		for i in range(len(self.state)):
-			row = [str(i * len(self.state[0]) + j + 1) for j in range(len(self.state[0]))]
+		for i in range(self.rows):
+			row = [str(i * self.cols + j + 1) for j in range(self.cols)]
 			goal.append(row)
 		goal[-1][-1] = "*"
 		return State(goal)
 		
 	def isGoal(self):
-		return self.equals(self.getGoal())
-			
+		for i in range(1, self.rows * self.cols):
+			if self.state[(i - 1) // self.cols][(i - 1) % self.cols] != str(i): return False
+		return True
+	
 	def getNeighbors(self):
-		star = self.star
 		neighbors = []
-		if star[0] > 0: neighbors.append((star[0] - 1, star[1]))
-		if star[1] > 0: neighbors.append((star[0], star[1]  - 1))
-		if star[0] < len(self.state) - 1: neighbors.append((star[0] + 1, star[1]))
-		if star[1] < len(self.state[0]) - 1: neighbors.append((star[0], star[1] + 1))
+		if self.star[0] > 0: neighbors.append((self.star[0] - 1, self.star[1]))
+		if self.star[1] > 0: neighbors.append((self.star[0], self.star[1]  - 1))
+		if self.star[0] < self.rows - 1: neighbors.append((self.star[0] + 1, self.star[1]))
+		if self.star[1] < self.cols - 1: neighbors.append((self.star[0], self.star[1] + 1))
 		return neighbors
 	
 	def ComputeNeighbors(self):
-		return list(map(lambda neighbor: (self.value(neighbor), self.swap(neighbor[0], neighbor[1])), self.getNeighbors()))
+		return list(map(lambda pos: (self.value(pos[0], pos[1]), self.swap(pos[0], pos[1])), self.getNeighbors()))
 
+# memoizes when state is equal to one in cache
 def memoize(f):
 	cache = {}
 	def g(x):
-		if x not in cache: cache[x] = f(x)
-		return cache[x]
+		for state in cache:
+			if state.equals(x): return cache[state]
+		cache[x] = f(x)
+		return f(x)
 	return g
+
+def isSolvable(state):
+	inversions = 0
+	it = [i for i in range(state.cols * state.rows) if i != state.star[0] * state.cols + state.star[1]]
+	tilesDone = [(0, -1, None), (int(state.state[it[-1] // state.cols][it[-1] % state.cols]), 0, -1)]
+	for iterator in range(len(it) - 2, -1, -1):
+		i = it[iterator]
+		num = int(state.state[i // state.cols][i % state.cols])
+		greatest = tilesDone[0]
+		if tilesDone[-1][0] + 1 == num:	greatest = tilesDone[-1]
+		inv = greatest[1] + 1
+		for j in it[iterator+1:greatest[2]]:
+			comp = int(state.state[j // state.cols][j % state.cols])
+			if num > comp: inv += 1
+		heapq.heappush(tilesDone, (num, inv, iterator))
+		inversions += inv
+	if state.cols % 2 == 0 and (state.rows - state.star[0]) % 2 == 0:	return inversions % 2 == 1
+	return inversions % 2 == 0			
 
 def LoadFromFile(filepath):
 	state = []
@@ -70,63 +115,112 @@ def LoadFromFile(filepath):
 
 # checks neighbors in order up, left, down, right
 def BFS(state):
-	frontier, discovered, parents = [state], set(), {state: []}
+	if not isSolvable(state) or state.isGoal(): return []
+	frontier, discovered, parents = [], [state], {}
+	for neighbor in state.ComputeNeighbors():
+		frontier = [neighbor[1]] + frontier
+		discovered.append(neighbor[1])
+		parents[neighbor[1]] = [neighbor[0]]
 	while frontier:
 		current = frontier.pop()
-		discovered.add(current)
-		if current.isGoal():
-			return parents[current]
+		if current.isGoal(): return parents[current]
 		for neighbor in current.ComputeNeighbors():
 			if not any(map(neighbor[1].equals, discovered)):
 				frontier = [neighbor[1]] + frontier
-				parents[neighbor[1]] = [neighbor[0]]
-				if parents[current]: parents[neighbor[1]] = parents[current] + [neighbor[0]]
+				discovered.append(neighbor[1])
+				parents[neighbor[1]] = parents[current] + [neighbor[0]]
 
 # checks neighbors in order right, down, left, up
 def DFS(state):
-	frontier, discovered, parents = [state], set(), {state: []}
+	if not isSolvable(state) or state.isGoal(): return []
+	if state.isGoal(): return []
+	frontier, discovered, parents = [], [state], {}
+	for neighbor in state.ComputeNeighbors():
+		frontier.append(neighbor[1])
+		discovered.append(neighbor[1])
+		parents[neighbor[1]] = [neighbor[0]]
 	while frontier:
 		current = frontier.pop()
-		discovered.add(current)
-		if current.isGoal():
-			return parents[current]
+		if current.isGoal(): return parents[current]
 		for neighbor in current.ComputeNeighbors():
 			if not any(map(neighbor[1].equals, discovered)):
 				frontier.append(neighbor[1])
-				parents[neighbor[1]] = [neighbor[0]]
-				if parents[current]: parents[neighbor[1]] = parents[current] + [neighbor[0]]
+				discovered.append(neighbor[1])
+				parents[neighbor[1]] = parents[current] + [neighbor[0]]
 		
 			
 def BidirectionalSearch(state):
+	if not isSolvable(state): return []
 	goal = state.getGoal()
-	frontier, frontierG = [state], [goal]
-	discovered, discoveredG = set(), set()
-	parents = {state: [], goal: []}
+	if state.equals(goal): return []
+	frontier, discovered, parents = [], [state], {}
+	for neighbor in state.ComputeNeighbors():
+		frontier = [neighbor[1]] + frontier
+		discovered.append(neighbor[1])
+		parents[neighbor[1]] = [neighbor[0]]
+	frontierG, discoveredG, parentsG = [], [goal], {}
+	for neighborG in goal.ComputeNeighbors():
+		frontierG = [neighborG[1]] + frontierG
+		discoveredG.append(neighborG[1])
+		parentsG[neighborG[1]] = [neighborG[0]]
 	while frontier or frontierG:
 		current, currentG = frontier.pop(), frontierG.pop()
-		discovered.add(current)
-		discoveredG.add(currentG)
-		for d, dG in [(d, dG) for d in discovered for dG in discoveredG]:
-			if d.equals(dG):
-				if parents[d] and parents[dG]: return parents[d] + parents[dG]
-				elif parents[d]: return parents[d]
-				elif parents[dG]: return parents[dG]
-				else: return None
+		if current in discoveredG:	return parents[current] + parentsG[current]
+		if currentG in discovered: return parents[currentG] + parentsG[currentG]
 		for neighbor in current.ComputeNeighbors():
-			if not any(map(neighbor[1].equals, discovered)):
-				frontier.append(neighbor[1])
-				parents[neighbor[1]] = [neighbor[0]]
-				if parents[current]: parents[neighbor[1]] = parents[current] + [neighbor[0]]
+			if neighbor[1] not in discovered:
+				frontier = [neighbor[1]] + frontier
+				discovered.append(neighbor[1])
+				parents[neighbor[1]] = parents[current] + [neighbor[0]]
 		for neighborG in currentG.ComputeNeighbors():
-			if not any(map(neighborG[1].equals, discoveredG)):
-				frontierG.append(neighborG[1])
-				parents[neighborG[1]] = [neighborG[0]]
-				if parents[currentG]: parents[neighborG[1]] += parents[currentG]
+			if neighborG[1] not in discoveredG:
+				frontierG = [neighborG[1]] + frontierG
+				discoveredG.append(neighborG[1])
+				parentsG[neighborG[1]] = [neighborG[0]] + parentsG[currentG]
+
+def AStar(state):
+	if not isSolvable(state): return []
+	count = 0
+	if state.isGoal():
+		return []
+	frontier, discovered, parents = [], [state], {}
+	for neighbor in state.ComputeNeighbors():
+		t = (totalDisplacement(neighbor[1]), count, neighbor[1])
+		heapq.heappush(frontier, t)
+		discovered.append(neighbor[1])
+		parents[neighbor[1]] = [neighbor[0]]
+		count += 1
+	while frontier:
+		current = heapq.heappop(frontier)[2]
+		if current.isGoal():
+			return parents[current]
+		for neighbor in current.ComputeNeighbors():
+			if neighbor[1] not in discovered:
+				t = (totalDisplacement(neighbor[1]), count, neighbor[1])
+				heapq.heappush(frontier, t)
+				discovered.append(neighbor[1])
+				parents[neighbor[1]] = parents[current] + [neighbor[0]]
+				count += 1
 	
+@memoize
+def totalDisplacement(state):
+	dis = 0
+	omit = state.star[0] * state.cols + state.star[1]
+	for i in range(omit):
+		val = int(state.state[i // state.cols][i % state.cols])
+		correctPos = ((val - 1) // state.cols, (val - 1) % state.cols)
+		dis += abs(correctPos[0] - (i // state.cols)) + abs(correctPos[1] - (i % state.cols))
+	dis += abs(state.rows - state.star[0] - 1) + abs(state.cols - state.star[1] - 1)
+	for i in range(omit + 1, state.cols * state.rows):
+		val = int(state.state[i // state.cols][i % state.cols])
+		correctPos = ((val - 1) // state.cols, (val - 1) % state.cols)
+		dis += abs(correctPos[0] - (i // state.cols)) + abs(correctPos[1] - (i % state.cols))
+	return dis
 
 def main():
 	state = LoadFromFile('game.txt')
-	print(BidirectionalSearch(state))
+	'''f = AStar
+	print(str(f.__name__) + ": " + (str(f(state))))'''
 
 if __name__ == '__main__':
 	main()

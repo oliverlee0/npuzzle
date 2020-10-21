@@ -1,11 +1,3 @@
-'''
-1	6	8	12	9
-4	7	17	*	5
-16	22	24	3	15
-2	18	23	10	19
-11	21	14	13	20
-'''
-
 import heapq
 
 def storeUnique(C):
@@ -83,8 +75,7 @@ class State:
 def memoize(f):
 	cache = {}
 	def g(x):
-		for state in cache:
-			if state.equals(x): return cache[state]
+		if x in cache: return cache[x]
 		cache[x] = f(x)
 		return f(x)
 	return g
@@ -92,20 +83,26 @@ def memoize(f):
 def isSolvable(state):
 	inversions = 0
 	it = [i for i in range(state.cols * state.rows) if i != state.star[0] * state.cols + state.star[1]]
-	tilesDone = [(0, -1, None), (int(state.state[it[-1] // state.cols][it[-1] % state.cols]), 0, -1)]
+	greatest = (int(state.state[it[-1] // state.cols][it[-1] % state.cols]) + 1, 0, -1)
 	for iterator in range(len(it) - 2, -1, -1):
-		i = it[iterator]
-		num = int(state.state[i // state.cols][i % state.cols])
-		greatest = tilesDone[0]
-		if tilesDone[-1][0] + 1 == num:	greatest = tilesDone[-1]
-		inv = greatest[1] + 1
-		for j in it[iterator+1:greatest[2]]:
-			comp = int(state.state[j // state.cols][j % state.cols])
+		num = int(state.state[it[iterator] // state.cols][it[iterator] % state.cols])
+		base = (0, 0, None)
+		if greatest[0] + 1 == num: base = greatest
+		inv = base[1]
+		for i in it[iterator+1:base[2]]:
+			comp = int(state.state[i // state.cols][i % state.cols])
 			if num > comp: inv += 1
-		heapq.heappush(tilesDone, (num, inv, iterator))
 		inversions += inv
+		if  num > greatest[0]: greatest = (num, inv + 1, iterator)
 	if state.cols % 2 == 0 and (state.rows - state.star[0]) % 2 == 0:	return inversions % 2 == 1
 	return inversions % 2 == 0			
+
+def swapValues(state, l):
+	newState = state
+	for v in l:
+		pos = newState.index(v)
+		newState = newState.swap(pos[0], pos[1])
+	return newState
 
 def LoadFromFile(filepath):
 	state = []
@@ -125,7 +122,7 @@ def BFS(state):
 		current = frontier.pop()
 		if current.isGoal(): return parents[current]
 		for neighbor in current.ComputeNeighbors():
-			if not any(map(neighbor[1].equals, discovered)):
+			if neighbor[1] not in discovered:
 				frontier = [neighbor[1]] + frontier
 				discovered.append(neighbor[1])
 				parents[neighbor[1]] = parents[current] + [neighbor[0]]
@@ -133,7 +130,6 @@ def BFS(state):
 # checks neighbors in order right, down, left, up
 def DFS(state):
 	if not isSolvable(state) or state.isGoal(): return []
-	if state.isGoal(): return []
 	frontier, discovered, parents = [], [state], {}
 	for neighbor in state.ComputeNeighbors():
 		frontier.append(neighbor[1])
@@ -143,7 +139,7 @@ def DFS(state):
 		current = frontier.pop()
 		if current.isGoal(): return parents[current]
 		for neighbor in current.ComputeNeighbors():
-			if not any(map(neighbor[1].equals, discovered)):
+			if neighbor[1] not in discovered:
 				frontier.append(neighbor[1])
 				discovered.append(neighbor[1])
 				parents[neighbor[1]] = parents[current] + [neighbor[0]]
@@ -165,7 +161,7 @@ def BidirectionalSearch(state):
 		parentsG[neighborG[1]] = [neighborG[0]]
 	while frontier or frontierG:
 		current, currentG = frontier.pop(), frontierG.pop()
-		if current in discoveredG:	return parents[current] + parentsG[current]
+		if current in discoveredG: return parents[current] + parentsG[current]
 		if currentG in discovered: return parents[currentG] + parentsG[currentG]
 		for neighbor in current.ComputeNeighbors():
 			if neighbor[1] not in discovered:
@@ -179,10 +175,8 @@ def BidirectionalSearch(state):
 				parentsG[neighborG[1]] = [neighborG[0]] + parentsG[currentG]
 
 def AStar(state):
-	if not isSolvable(state): return []
+	if not isSolvable(state) or state.isGoal(): return []
 	count = 0
-	if state.isGoal():
-		return []
 	frontier, discovered, parents = [], [state], {}
 	for neighbor in state.ComputeNeighbors():
 		t = (totalDisplacement(neighbor[1]), count, neighbor[1])
@@ -191,15 +185,15 @@ def AStar(state):
 		parents[neighbor[1]] = [neighbor[0]]
 		count += 1
 	while frontier:
-		current = heapq.heappop(frontier)[2]
-		if current.isGoal():
-			return parents[current]
-		for neighbor in current.ComputeNeighbors():
+		current = heapq.heappop(frontier)
+		if current[2].isGoal():
+			return parents[current[2]]
+		for neighbor in current[2].ComputeNeighbors():
 			if neighbor[1] not in discovered:
-				t = (totalDisplacement(neighbor[1]), count, neighbor[1])
+				t = (current[0] + totalDisplacement(neighbor[1]), count, neighbor[1])
 				heapq.heappush(frontier, t)
 				discovered.append(neighbor[1])
-				parents[neighbor[1]] = parents[current] + [neighbor[0]]
+				parents[neighbor[1]] = parents[current[2]] + [neighbor[0]]
 				count += 1
 	
 @memoize
@@ -219,8 +213,8 @@ def totalDisplacement(state):
 
 def main():
 	state = LoadFromFile('game.txt')
-	'''f = AStar
-	print(str(f.__name__) + ": " + (str(f(state))))'''
+	f = BFS
+	print(str(f.__name__) + ": " + (str(f(state))))
 
 if __name__ == '__main__':
 	main()

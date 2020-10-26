@@ -272,31 +272,6 @@ def lastMove(state):
 	if str(state.rows * state.cols - 1) not in state.state[-1] and str(state.cols * (state.rows - 1)) not in [row[-1] for row in state.state]: return 2
 	return 0
 
-def AStar(state):
-	if not isSolvable(state) or state.isGoal(): return []
-	frontier, discovered, parents = [], [state], {}
-	conflictTiles = getConflictTiles(state)
-	prevCost = manhattanDistance(state) + conflictTiles[2]
-	for neighbor in state.ComputeNeighbors():
-		discovered.append(neighbor[1])
-		parents[neighbor[1]] = [neighbor[0]]
-		cost = prevCost + 1 + state.recursManhattanDistance(neighbor[0]) + state.recursLinearConflicts(neighbor[0], [], conflictTiles)
-		t = (cost, neighbor[1])
-		heapq.heappush(frontier, t)
-	while frontier:
-		current = heapq.heappop(frontier)
-		prevCost = current[0] - len(parents[current[1]])
-		current = current[1]
-		if current.isGoal():
-			return parents[current]
-		for neighbor in current.ComputeNeighbors():
-			if neighbor[1] not in discovered:
-				discovered.append(neighbor[1])
-				parents[neighbor[1]] = parents[current] + [neighbor[0]]
-				cost = prevCost + len(parents[neighbor[1]]) + current.recursManhattanDistance(neighbor[0]) + current.recursLinearConflicts(neighbor[0], parents[current], conflictTiles)
-				t = (cost, neighbor[1])
-				heapq.heappush(frontier, t)
-
 #Reduces admissibility to a slight extent
 def FastAStar(state):
 	if not isSolvable(state) or state.isGoal(): return []
@@ -324,7 +299,7 @@ def FastAStar(state):
 				heapq.heappush(frontier, t)
 
 #Uses FastAStar to create an upper bound for what a state's total cost can be, while also admissible
-def InformedAStar(state):
+def AStar(state):
 	if not isSolvable(state) or state.isGoal(): return []
 	bound = len(FastAStar(state))
 	frontier, discovered, parents = [], [state], {}
@@ -354,7 +329,7 @@ def InformedAStar(state):
 
 def main():
 	state = LoadFromFile('game.txt')
-	f = FastAStar
+	f = AStar
 	print(str(f.__name__) + ": " + (str(f(state))))
 
 if __name__ == '__main__':

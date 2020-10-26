@@ -4,7 +4,7 @@ import heapq
 def memoizeClass(C):
 	cache = {}
 	def constructUnique(*args):
-		s = str(args[0])
+		s = str(args)
 		if s in cache: return cache[s]
 		cache[s] = C(*args)
 		return cache[s]
@@ -51,7 +51,11 @@ class State:
 		return True
 		
 	def recursManhattanDistance(self, val):
-		pos = self.index(val)
+		pos = None
+		for n in self.getNeighbors():
+			if self.state[n[0]][n[1]] == val:
+				pos = n
+				continue
 		val = int(val)
 		goalRow = (val - 1) // self.cols
 		goalCol = (val - 1) % self.cols
@@ -59,13 +63,13 @@ class State:
 		oldDistance = abs(pos[0] - goalRow) + abs(pos[1] - goalCol)
 		return newDistance - oldDistance
 
-	def recursManhattanDistance2(self, pos):
-		val = int(self.state[pos[0]][pos[1]])
-		goalRow = (val - 1) // self.cols
-		goalCol = (val - 1) % self.cols
-		newDistance = abs(self.star[0] - goalRow) + abs(self.star[1] - goalCol)
-		oldDistance = abs(pos[0] - goalRow) + abs(pos[1] - goalCol)
-		return newDistance - oldDistance
+	def recursLinearConflicts(self, val, parents, conflictTiles):
+		if val not in parents:
+			if val in conflictTiles[0] and self.star[0] != conflictTiles[0][val]:
+				return -2
+			elif val in conflictTiles[1] and self.star[1] != conflictTiles[1][val]:
+				return -2
+		return 0
 
 	def getNeighbors(self):
 		neighbors = []
@@ -208,7 +212,7 @@ def getConflictTiles(state):
 	data[state.star[0]][state.star[1]] = 0
 	data = [[int(item) for item in row] for row in data]
 	rowConflicts, colConflicts = {}, {}
-	rowConflictTiles, colConflictTiles = set(), set()
+	rowConflictTiles, colConflictTiles = {}, {}
 	for row in range(len(data)):
 		conflictsHeap = []
 		for tile in range(len(data[0])):
@@ -221,7 +225,7 @@ def getConflictTiles(state):
 			for t in conflictsHeap:
 				if biggestConflictTile in rowConflicts[(t[1], row)]:
 					rowConflicts[(t[1], row)] = [item for item in rowConflicts[(t[1], row)] if item != biggestConflictTile]
-			rowConflictTiles.add(str(data[row][biggestConflictTile]))
+			rowConflictTiles[str(data[row][biggestConflictTile])] = row
 	for col in range(len(data[0])):
 		conflictsHeap = []
 		for tile in range(len(data)):
@@ -234,7 +238,7 @@ def getConflictTiles(state):
 			for t in conflictsHeap:
 				if biggestConflictTile in colConflicts[(t[1], col)]:
 					colConflicts[(t[1], col)] = [item for item in colConflicts[(t[1], col)] if item != biggestConflictTile]
-			colConflictTiles.add(str(data[biggestConflictTile][col]))
+			colConflictTiles[str(data[biggestConflictTile][col])] = col
 	return (rowConflictTiles, colConflictTiles, 2 * (len(rowConflictTiles) + len(colConflictTiles)))
 
 def findRowConflict(data, tile, row):
@@ -245,9 +249,10 @@ def findRowConflict(data, tile, row):
 	conflictCols = []
 	if correctCol > tile:
 		for i in range(tile + 1, correctCol + 1):
-			if (data[row][i] - 1) // len(data[0]) == row: conflictCols.append(i)
+			if data[row][i] < val and (data[row][i] - 1) // len(data[0]) == row:
+				conflictCols.append(i)
 	for i in range(correctCol, tile):
-		if (data[row][i] - 1) // len(data[0]) == row: conflictCols.append(i)
+		if data[row][i] > val and (data[row][i] - 1) // len(data[0]) == row: conflictCols.append(i)
 	return conflictCols
 
 def findColConflict(data, tile, col):
@@ -258,9 +263,9 @@ def findColConflict(data, tile, col):
 	conflictRows = []
 	if correctRow > tile:
 		for i in range(tile + 1, correctRow + 1):
-			if (data[i][col] - 1) % len(data[0]) == col: conflictRows.append(i)
+			if data[i][col] < val and (data[i][col] - 1) % len(data[0]) == col: conflictRows.append(i)
 	for i in range(correctRow, tile):
-		if (data[i][col] - 1) % len(data[0]) == col: conflictRows.append(i)
+		if data[i][col] > val and (data[i][col] - 1) % len(data[0]) == col: conflictRows.append(i)
 	return conflictRows
 
 def lastMove(state):
@@ -275,15 +280,12 @@ def AStar(state):
 	for neighbor in state.ComputeNeighbors():
 		discovered.append(neighbor[1])
 		parents[neighbor[1]] = [neighbor[0]]
-		cost = prevCost + 1 + state.recursManhattanDistance(neighbor[0])
-		if neighbor[0] in conflictTiles[0]:	cost -= 2
-		if neighbor[0] in conflictTiles[1]:	cost -= 2
+		cost = prevCost + 1 + state.recursManhattanDistance(neighbor[0]) + state.recursLinearConflicts(neighbor[0], [], conflictTiles)
 		t = (cost, neighbor[1])
 		heapq.heappush(frontier, t)
 	while frontier:
 		current = heapq.heappop(frontier)
-		prevCost = current[0]
-		print(prevCost)
+		prevCost = current[0] - len(parents[current[1]])
 		current = current[1]
 		if current.isGoal():
 			return parents[current]
@@ -291,29 +293,25 @@ def AStar(state):
 			if neighbor[1] not in discovered:
 				discovered.append(neighbor[1])
 				parents[neighbor[1]] = parents[current] + [neighbor[0]]
-				cost = prevCost + 1 + current.recursManhattanDistance(neighbor[0])
-				if neighbor[0] not in parents[current]:
-					if neighbor[0] in conflictTiles[0]: cost -= 2
-					if neighbor[0] in conflictTiles[1]: cost -= 2
+				cost = prevCost + len(parents[neighbor[1]]) + current.recursManhattanDistance(neighbor[0]) + current.recursLinearConflicts(neighbor[0], parents[current], conflictTiles)
 				t = (cost, neighbor[1])
 				heapq.heappush(frontier, t)
 
-#AStar but not admissible
-def PessimisticAStar(state):
+#Reduces admissibility to a slight extent
+def FastAStar(state):
 	if not isSolvable(state) or state.isGoal(): return []
 	frontier, discovered, parents = [], [state], {}
 	conflictTiles = getConflictTiles(state)
+	prevCost = 3 * (manhattanDistance(state) + conflictTiles[2])
 	for neighbor in state.ComputeNeighbors():
 		discovered.append(neighbor[1])
 		parents[neighbor[1]] = [neighbor[0]]
-		cost = state.recursManhattanDistance(neighbor[0])
-		if neighbor[0] in conflictTiles[0]:	cost -= 2
-		if neighbor[0] in conflictTiles[1]:	cost -= 2
+		cost = prevCost + 1 + 3 * (state.recursManhattanDistance(neighbor[0]) + state.recursLinearConflicts(neighbor[0], [], conflictTiles))
 		t = (cost, neighbor[1])
 		heapq.heappush(frontier, t)
 	while frontier:
 		current = heapq.heappop(frontier)
-		prevCost = current[0]
+		prevCost = current[0] - len(parents[current[1]])
 		current = current[1]
 		if current.isGoal():
 			return parents[current]
@@ -321,16 +319,42 @@ def PessimisticAStar(state):
 			if neighbor[1] not in discovered:
 				discovered.append(neighbor[1])
 				parents[neighbor[1]] = parents[current] + [neighbor[0]]
-				cost = prevCost + current.recursManhattanDistance(neighbor[0])
-				if neighbor[0] not in parents[current]:
-					if neighbor[0] in conflictTiles[0]: cost -= 2
-					if neighbor[0] in conflictTiles[1]: cost -= 2
+				cost = prevCost + len(parents[neighbor[1]]) + 3 * (current.recursManhattanDistance(neighbor[0]) + current.recursLinearConflicts(neighbor[0], parents[current], conflictTiles))
 				t = (cost, neighbor[1])
 				heapq.heappush(frontier, t)
 
+#Uses FastAStar to create an upper bound for what a state's total cost can be, while also admissible
+def InformedAStar(state):
+	if not isSolvable(state) or state.isGoal(): return []
+	bound = len(FastAStar(state))
+	frontier, discovered, parents = [], [state], {}
+	conflictTiles = getConflictTiles(state)
+	prevCost = manhattanDistance(state) + conflictTiles[2]
+	for neighbor in state.ComputeNeighbors():
+		discovered.append(neighbor[1])
+		parents[neighbor[1]] = [neighbor[0]]
+		cost = prevCost + 1 + state.recursManhattanDistance(neighbor[0]) + state.recursLinearConflicts(neighbor[0], [], conflictTiles)
+		if cost <= bound:
+			t = (cost, neighbor[1])
+			heapq.heappush(frontier, t)
+	while frontier:
+		current = heapq.heappop(frontier)
+		prevCost = current[0] - len(parents[current[1]])
+		current = current[1]
+		if current.isGoal():
+			return parents[current]
+		for neighbor in current.ComputeNeighbors():
+			if neighbor[1] not in discovered:
+				discovered.append(neighbor[1])
+				parents[neighbor[1]] = parents[current] + [neighbor[0]]
+				cost = prevCost + len(parents[neighbor[1]]) + current.recursManhattanDistance(neighbor[0]) + current.recursLinearConflicts(neighbor[0], parents[current], conflictTiles)
+				if cost <= bound:
+					t = (cost, neighbor[1])
+					heapq.heappush(frontier, t)
+
 def main():
 	state = LoadFromFile('game.txt')
-	f = AStar
+	f = FastAStar
 	print(str(f.__name__) + ": " + (str(f(state))))
 
 if __name__ == '__main__':
